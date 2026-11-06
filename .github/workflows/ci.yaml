@@ -1,0 +1,54 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: syntax check
+        run: python -m py_compile balancer.py scripts/rounds.py
+      - name: install test deps
+        run: pip install -r requirements-dev.txt
+      - name: tests
+        run: python -m pytest -q
+      - name: no third-party imports
+        run: |
+          python - <<'PY'
+          import ast, sys
+          std = set(sys.stdlib_module_names)
+          for f in ("balancer.py", "scripts/rounds.py"):
+              tree = ast.parse(open(f).read())
+              for node in ast.walk(tree):
+                  mods = []
+                  if isinstance(node, ast.Import):
+                      mods = [a.name.split(".")[0] for a in node.names]
+                  elif isinstance(node, ast.ImportFrom) and node.module:
+                      mods = [node.module.split(".")[0]]
+                  for m in mods:
+                      if m not in std:
+                          sys.exit(f"{f}: non-stdlib import {m}")
+          print("stdlib only")
+          PY
+
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: lint
+        run: helm lint ./chart
+      - name: template (defaults must stay dry-run + suspended)
+        run: |
+          helm template node-leveler ./chart > /tmp/out.yaml
+          grep -q 'suspend: true' /tmp/out.yaml
+          grep -q 'MODE: "dry-run"' /tmp/out.yaml
+          # nothing selected by default: the operator must name their pools and namespaces
+          grep -q 'POOLS: ""' /tmp/out.yaml
+          grep -q 'NS_INCLUDE: "^$"' /tmp/out.yaml
