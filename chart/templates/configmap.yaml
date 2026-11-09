@@ -1,0 +1,12 @@
+# Parameter ConfigMap: every runtime setting (change values -> helm upgrade, never the code)
+# The state ConfigMap (cooldowns, EMA samples, lock) is not here: the balancer owns it, so
+# `helm uninstall` never deletes it
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: '{{ include "node-leveler.fullname" . }}-config'
+  namespace: '{{ include "node-leveler.namespace" . }}'
+data:
+  {{- range $k, $v := .Values.config }}
+  {{ $k }}: {{ $v | toString | quote }}
+  {{- end }}

@@ -1,0 +1,81 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: syntax check
+        run: python -m py_compile balancer.py scripts/rounds.py
+      - name: install test deps
+        run: pip install -r requirements-dev.txt
+      - name: hygiene (no private IPs, local paths or real mail domains)
+        run: |
+          python - <<'PY'
+          import pathlib, re, sys
+          exts = {".py", ".yaml", ".yml", ".md", ".tpl", ".sh", ".json"}
+          skip = {".git", ".venv", "__pycache__", ".pytest_cache"}
+          rules = [
+              ("private-ip", re.compile(r"\b(?:10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)\b")),
+              ("local-path", re.compile(r"(/Users/[^/\s]+|/home/[a-z][a-z0-9_-]*|/root/)")),  # noqa: hygiene desensitize
+              ("mail-domain", re.compile(r"@[a-z0-9-]+\.(?:com|cn|io|net|org)\b", re.I)),
+          ]
+          allowed = {"example.com", "example", "users.noreply.github.com"}
+          bad = []
+          for p in pathlib.Path(".").rglob("*"):
+              if not p.is_file() or p.suffix.lower() not in exts or skip & set(p.parts):
+                  continue
+              for n, line in enumerate(p.read_text(errors="replace").splitlines(), 1):
+                  if "noqa: hygiene" in line:
+                      continue
+                  for name, rx in rules:
+                      for m in rx.finditer(line):
+                          if name == "mail-domain" and m.group(0)[1:].lower() in allowed:
+                              continue
+                          bad.append(f"{p}:{n}: [{name}] {m.group(0)}")
+          print("\n".join(bad) if bad else "hygiene: clean")
+          sys.exit(1 if bad else 0)
+          PY
+      - name: tests
+        run: python -m pytest -q
+      - name: no third-party imports
+        run: |
+          python - <<'PY'
+          import ast, sys
+          std = set(sys.stdlib_module_names)
+          for f in ("balancer.py", "scripts/rounds.py"):
+              tree = ast.parse(open(f).read())
+              for node in ast.walk(tree):
+                  mods = []
+                  if isinstance(node, ast.Import):
+                      mods = [a.name.split(".")[0] for a in node.names]
+                  elif isinstance(node, ast.ImportFrom) and node.module:
+                      mods = [node.module.split(".")[0]]
+                  for m in mods:
+                      if m not in std:
+                          sys.exit(f"{f}: non-stdlib import {m}")
+          print("stdlib only")
+          PY
+
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: lint
+        run: helm lint ./chart
+      - name: template (defaults must stay dry-run + suspended)
+        run: |
+          helm template node-leveler ./chart > /tmp/out.yaml
+          grep -q 'suspend: true' /tmp/out.yaml
+          grep -q 'MODE: "dry-run"' /tmp/out.yaml
+          # nothing selected by default: the operator must name their pools and namespaces
+          grep -q 'POOLS: ""' /tmp/out.yaml
+          grep -q 'NS_INCLUDE: "^$"' /tmp/out.yaml
