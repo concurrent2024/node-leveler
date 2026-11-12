@@ -1,0 +1,63 @@
+# Identity and least privilege: read nodes and pods, create evictions, write our own ConfigMap.
+# No pod deletion, no workload edits; nodes are patched only for the brief cordon window.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: '{{ include "node-leveler.fullname" . }}'
+  namespace: '{{ include "node-leveler.namespace" . }}'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: '{{ include "node-leveler.fullname" . }}'
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "patch", "update"]   # patch/update only for the temporary cordon during a move
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]                      # read only, never delete
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]                           # the only write action, via the Eviction API (PDBs apply)
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]                      # node and per-pod real usage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: '{{ include "node-leveler.fullname" . }}'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: '{{ include "node-leveler.fullname" . }}'
+subjects:
+  - kind: ServiceAccount
+    name: '{{ include "node-leveler.fullname" . }}'
+    namespace: '{{ include "node-leveler.namespace" . }}'
+---
+# State is written only to one ConfigMap in our own namespace (cooldowns, EMA, lock)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: '{{ include "node-leveler.fullname" . }}-state'
+  namespace: '{{ include "node-leveler.namespace" . }}'
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: '{{ include "node-leveler.fullname" . }}-state'
+  namespace: '{{ include "node-leveler.namespace" . }}'
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: '{{ include "node-leveler.fullname" . }}-state'
+subjects:
+  - kind: ServiceAccount
+    name: '{{ include "node-leveler.fullname" . }}'
+    namespace: '{{ include "node-leveler.namespace" . }}'

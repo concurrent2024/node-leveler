@@ -1,0 +1,56 @@
+# Small cluster: a few general-purpose node pools, one namespace tiers.
+# Copy this file, adjust POOLS / NS_INCLUDE / thresholds, then:
+#   helm template node-leveler ./chart -f examples/values-small-cluster.yaml | kubectl diff -f -
+namespace: cluster-ops
+
+image:
+  repository: ghcr.io/concurrent2024/node-leveler
+  tag: "v0.1.0"
+
+# nothing runs until you flip these two
+suspend: true
+config:
+  MODE: "dry-run"
+
+  # --- where to look -------------------------------------------------------
+  # pool = <value of POOL_LABEL>/<CPU count of the node>
+  POOL_LABEL: "node-pool"
+  POOLS: "general/4C,general/16C"
+  NS_INCLUDE: "^(app|batch)\\d+$"
+  NS_EXCLUDE: ""
+  DENY_WORKLOADS: ""
+
+  # --- waterlines (percent) ------------------------------------------------
+  POD_HIGH: "95"            # a node over this is a source
+  CPU_HIGH: "75"
+  MEM_HIGH: "80"
+  TARGET_POD_MAX: "90"      # a target must stay under this after the move
+  TARGET_CPU_MAX: "85"
+  TARGET_MEM_MAX: "80"
+  MEM_BASIS: "physical"     # judge hot nodes by physical memory
+  MEM_ACT_HIGH: "85"
+  CPU_ACT_HIGH: "60"
+  PHYS_AFTER_MEM_MAX: "85"
+
+  # --- pool level ----------------------------------------------------------
+  POOL_SLOT_PRESSURE: "85"  # 0 disables the pool-pressure driver
+  POOL_PRESSURE_SRC_MIN: "85"
+  POOL_SLOT_NOTIFY: "85"
+
+  # --- quotas --------------------------------------------------------------
+  MAX_PER_CYCLE: "4"
+  MAX_PER_NODE: "4"
+  MAX_PER_NS: "2"
+  MAX_SINGLE_REPLICA: "0"   # 0 = never restart a single-replica workload
+  MAX_STS_PER_CYCLE: "0"
+  DAILY_BUDGET: "100"
+  COOLDOWN_HOURS: "6"
+
+  # --- behaviour -----------------------------------------------------------
+  CORDON_GUIDE: "true"
+  CORDON_LABEL: "node-leveler/cordoned"
+  LANDING_GUARD: "true"
+  AUTO_DOWNGRADE: "true"
+  SETTLE_TIMEOUT: "300"
+  CLUSTER_NAME: "my-cluster"
+  NOTIFY_ENABLED: "true"

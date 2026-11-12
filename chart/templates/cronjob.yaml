@@ -1,0 +1,50 @@
+# Balancer round: runs on a schedule and moves at most MAX_PER_CYCLE pods per round
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: '{{ include "node-leveler.fullname" . }}'
+  namespace: '{{ include "node-leveler.namespace" . }}'
+spec:
+  schedule: {{ .Values.schedule | quote }}
+  timeZone: {{ .Values.timeZone | quote }}
+  concurrencyPolicy: {{ .Values.concurrencyPolicy }}
+  startingDeadlineSeconds: {{ .Values.startingDeadlineSeconds }}
+  # Safe default: a fresh install stays idle until suspend is explicitly set to false
+  suspend: {{ .Values.suspend }}
+  successfulJobsHistoryLimit: {{ .Values.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.activeDeadlineSeconds }}
+      ttlSecondsAfterFinished: {{ .Values.ttlSecondsAfterFinished }}
+      template:
+        spec:
+          serviceAccountName: '{{ include "node-leveler.fullname" . }}'
+          restartPolicy: Never
+          {{- with .Values.nodeSelector }}
+          nodeSelector:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.tolerations }}
+          tolerations:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: leveler
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["python3", "/app/balancer.py"]
+              envFrom:
+                - configMapRef:
+                    name: '{{ include "node-leveler.fullname" . }}-config'
+                # Webhook credentials come from a Secret (optional: a missing Secret only disables notifications)
+                - secretRef:
+                    name: {{ .Values.notifySecretName | quote }}
+                    optional: true
+              resources:
+                {{- toYaml .Values.resources | nindent 16 }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}

@@ -1,0 +1,41 @@
+# Mixed pools: small nodes saturated, large nodes with headroom.
+# Shows the pool-pressure driver and slot-driven balancing.
+namespace: cluster-ops
+
+image:
+  repository: ghcr.io/concurrent2024/node-leveler
+  tag: "v0.1.0"
+
+suspend: true
+config:
+  MODE: "dry-run"
+  CLUSTER_NAME: "staging"
+
+  POOL_LABEL: "node-pool"
+  POOLS: "general/4C,general/16C,storage/8C"
+  NS_INCLUDE: "^(app|batch)\\d+$"
+
+  # slots first — the waterline that actually blocks scheduling here
+  POD_HIGH: "95"
+  TARGET_POD_MAX: "90"
+  ALLOC_PRESSURE_HIGH: "98"
+
+  # keep one full pool from silently climbing: start draining it at 85%
+  POOL_SLOT_PRESSURE: "85"
+  POOL_PRESSURE_SRC_MIN: "85"
+
+  # real usage still guards OOM
+  MEM_BASIS: "physical"
+  MEM_ACT_HIGH: "85"
+  MEM_CRITICAL: "90"
+  PHYS_AFTER_MEM_MAX: "85"
+
+  # drain faster during maintenance, still bounded
+  MAX_PER_CYCLE: "8"
+  MAX_PER_NODE: "8"
+  MAX_SINGLE_REPLICA: "5"
+  DAILY_BUDGET: "300"
+
+  CORDON_GUIDE: "true"
+  CORDON_LABEL: "node-leveler/cordoned"
+  LANDING_GUARD: "true"
