@@ -1,0 +1,13 @@
+apiVersion: v2
+name: node-leveler
+description: Node waterline balancer - a CronJob that evicts a few pods per round so slot, CPU and memory usage across nodes stay level
+type: application
+version: 0.1.0
+license: MIT
+appVersion: "v0.1.0"
+keywords:
+  - kubernetes
+  - scheduling
+  - rebalance
+  - waterline
+  - capacity
